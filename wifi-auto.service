@@ -1,0 +1,22 @@
+[Unit]
+Description=WiFi Auto-Connect Daemon
+After=network.target wpa_supplicant.service
+Wants=wpa_supplicant.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/wifi-auto/main.py -c /opt/wifi-auto/config.yaml
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+# Run as root (needed for wpa_supplicant, ip route, dhcpcd)
+User=root
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/wifi-auto
+
+[Install]
+WantedBy=multi-user.target

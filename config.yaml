@@ -1,0 +1,69 @@
+# WiFi Auto-Connect Configuration
+# ===================================
+
+# Network interfaces
+interfaces:
+  wifi: "wlan0"        # WiFi interface for internet connection
+  wired: "eth0"         # Wired interface (will be managed for gateway removal)
+  prefer_wifi: true     # If true, prefer WiFi for internet even if wired is connected
+
+# Internet connectivity check
+connectivity:
+  check_interval: 60          # seconds between connectivity checks
+  test_urls:                  # URLs to test connectivity (must return 200/204)
+    - "http://connectivitycheck.gstatic.com/generate_204"
+    - "http://captive.apple.com/hotspot-detect.html"
+  test_timeout: 10            # seconds per URL test
+  dns_test_hosts:             # DNS resolution test targets
+    - "google.com"
+    - "cloudflare.com"
+  ping_hosts:                 # ICMP ping test targets
+    - "8.8.8.8"
+    - "1.1.1.1"
+  ping_count: 2
+  ping_timeout: 3             # seconds
+
+# Scan settings
+scan:
+  scan_timeout: 30            # seconds to wait for scan results
+  rescan_interval: 300        # minimum seconds between scans (avoid hammering)
+  signal_threshold: -85       # dBm - ignore networks weaker than this
+
+# Connection settings
+connection:
+  max_retries: 3              # retries per hotspot before moving to next
+  connect_timeout: 30         # seconds to wait for WiFi association
+  dhcp_timeout: 45            # seconds to wait for DHCP lease
+  portal_timeout: 60          # seconds to wait for captive portal handling
+
+# Priority hotspot list
+# Each hotspot has:
+#   ssid: the network name
+#   psk: WPA2/WPA3 password (omit for open networks)
+#   handler: name of the captive portal handler module (omit if no portal)
+#   priority: lower number = higher priority (1 = highest)
+#   hidden: true if hidden SSID (default false)
+hotspots:
+  - ssid: "Wi-Fi.HK"
+    handler: "wifi_hk"
+    priority: 1
+    # Open network, no psk needed
+
+  - ssid: "linksys1230"
+    psk: ""  # Set password if known
+    priority: 2
+
+  - ssid: "JudWiFi"
+    handler: "generic_accept"
+    priority: 3
+
+  - ssid: "Office"
+    psk: ""  # Set password if known
+    priority: 4
+
+# Logging
+logging:
+  level: "INFO"               # DEBUG, INFO, WARNING, ERROR
+  file: "/var/log/wifi-auto.log"  # Set to empty for stdout only
+  max_size_mb: 5
+  backup_count: 3
