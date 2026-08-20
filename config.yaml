@@ -44,22 +44,17 @@ connection:
 #   priority: lower number = higher priority (1 = highest)
 #   hidden: true if hidden SSID (default false)
 hotspots:
+  - ssid: "JudWiFi"
+    handler: "judwifi"
+    priority: 1
+
   - ssid: "Wi-Fi.HK"
     handler: "wifi_hk"
-    priority: 1
-    # Open network, no psk needed
-
-  - ssid: "linksys1230"
-    psk: ""  # Set password if known
     priority: 2
 
-  - ssid: "JudWiFi"
-    handler: "generic_accept"
+  - ssid: "linksys1230"
+    psk: ""
     priority: 3
-
-  - ssid: "Office"
-    psk: ""  # Set password if known
-    priority: 4
 
 # Logging
 logging:

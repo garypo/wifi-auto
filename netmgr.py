@@ -10,6 +10,8 @@ import logging
 import time
 from typing import Optional
 
+from utils import get_ip, get_dhcpcd
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,6 +22,8 @@ class NetworkManager:
                  wired_iface: str = "eth0"):
         self.wifi_iface = wifi_iface
         self.wired_iface = wired_iface
+        self._ip = get_ip()
+        self._dhcpcd = get_dhcpcd()
 
     def _run(self, cmd: list, timeout: int = 10) -> tuple:
         try:
@@ -41,7 +45,7 @@ class NetworkManager:
 
     def get_default_gateway(self) -> Optional[str]:
         """Get the current default gateway IP."""
-        rc, out, _ = self._run(["ip", "route", "show", "default"], timeout=5)
+        rc, out, _ = self._run([self._ip, "route", "show", "default"], timeout=5)
         if rc == 0:
             for line in out.split('\n'):
                 if "default via" in line:
@@ -52,7 +56,7 @@ class NetworkManager:
 
     def get_default_iface(self) -> Optional[str]:
         """Get the interface currently used for default route."""
-        rc, out, _ = self._run(["ip", "route", "show", "default"], timeout=5)
+        rc, out, _ = self._run([self._ip, "route", "show", "default"], timeout=5)
         if rc == 0:
             for line in out.split('\n'):
                 if "default via" in line and "dev" in line:
@@ -71,7 +75,7 @@ class NetworkManager:
         logger.info(f"Removing default gateway from {self.wired_iface}...")
 
         # Get current default route via wired interface
-        rc, out, _ = self._run(["ip", "route", "show", "default"], timeout=5)
+        rc, out, _ = self._run([self._ip, "route", "show", "default"], timeout=5)
         wired_gateway = None
         for line in out.split('\n'):
             if "default via" in line and self.wired_iface in line:
@@ -86,7 +90,7 @@ class NetworkManager:
 
         # Remove the default route via wired interface
         rc, out, err = self._run_shell(
-            f"sudo ip route del default via {wired_gateway} "
+            f"sudo {self._ip} route del default via {wired_gateway} "
             f"dev {self.wired_iface} 2>&1", timeout=10
         )
         if rc == 0:
@@ -95,7 +99,7 @@ class NetworkManager:
         else:
             # Might need to try without the via part
             rc, out, err = self._run_shell(
-                f"sudo ip route del default dev {self.wired_iface} 2>&1",
+                f"sudo {self._ip} route del default dev {self.wired_iface} 2>&1",
                 timeout=10
             )
             if rc == 0:
@@ -106,7 +110,7 @@ class NetworkManager:
         # Also reduce metric on wired interface to make it less preferred
         # (in case it gets re-added by DHCP)
         self._run_shell(
-            f"sudo ip route flush cache 2>&1", timeout=5
+            f"sudo {self._ip} route flush cache 2>&1", timeout=5
         )
 
         return True
@@ -118,7 +122,7 @@ class NetworkManager:
         # The DHCP client should re-add the route
         # Try to re-trigger DHCP on wired interface
         rc, out, _ = self._run_shell(
-            f"sudo dhcpcd -4 {self.wired_iface} 2>&1", timeout=30
+            f"sudo {self._dhcpcd} -4 {self.wired_iface} 2>&1", timeout=30
         )
 
         # If dhcpcd doesn't work, try networkctl reconfigure
@@ -145,11 +149,11 @@ class NetworkManager:
                     f"via {wifi_gateway}...")
 
         # First remove any existing default routes
-        self._run_shell("sudo ip route del default 2>/dev/null", timeout=5)
+        self._run_shell(f"sudo {self._ip} route del default 2>/dev/null", timeout=5)
 
         # Add new default route via WiFi
         rc, out, _ = self._run_shell(
-            f"sudo ip route add default via {wifi_gateway} "
+            f"sudo {self._ip} route add default via {wifi_gateway} "
             f"dev {self.wifi_iface} 2>&1", timeout=10
         )
         if rc == 0:
@@ -162,7 +166,7 @@ class NetworkManager:
     def get_wifi_gateway(self) -> Optional[str]:
         """Get the gateway IP for the WiFi interface from DHCP."""
         rc, out, _ = self._run(
-            ["ip", "route", "show", "dev", self.wifi_iface], timeout=5
+            [self._ip, "route", "show", "dev", self.wifi_iface], timeout=5
         )
         if rc == 0:
             for line in out.split('\n'):
@@ -174,7 +178,7 @@ class NetworkManager:
 
     def get_interface_ip(self, iface: str) -> Optional[str]:
         """Get the IP address of an interface."""
-        rc, out, _ = self._run(["ip", "-br", "addr", "show", iface], timeout=5)
+        rc, out, _ = self._run([self._ip, "-br", "addr", "show", iface], timeout=5)
         if rc == 0:
             for line in out.split('\n'):
                 if iface in line and "inet " in line:
@@ -185,7 +189,7 @@ class NetworkManager:
 
     def is_interface_up(self, iface: str) -> bool:
         """Check if an interface is up and has carrier."""
-        rc, out, _ = self._run(["ip", "-br", "link", "show", iface], timeout=5)
+        rc, out, _ = self._run([self._ip, "-br", "link", "show", iface], timeout=5)
         if rc == 0:
             return "UP" in out and "DOWN" not in out
         return False

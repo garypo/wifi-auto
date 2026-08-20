@@ -12,6 +12,7 @@ import tempfile
 from typing import Optional, List
 
 from scanner import WifiNetwork
+from utils import get_wpa_cli, get_wpa_supplicant, get_dhcpcd, get_dhclient, get_ip
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,12 @@ class WifiConnector:
         self.connect_timeout = connect_timeout
         self.dhcp_timeout = dhcp_timeout
         self._current_ssid: Optional[str] = None
+        # Resolve tool paths (handles /usr/sbin not in PATH on Debian)
+        self._wpa_cli = get_wpa_cli()
+        self._wpa_supplicant = get_wpa_supplicant()
+        self._dhcpcd = get_dhcpcd()
+        self._dhclient = get_dhclient()
+        self._ip = get_ip()
 
     def _run(self, cmd: list, timeout: int = 10) -> tuple:
         """Run a command, return (returncode, stdout, stderr)."""
@@ -63,7 +70,7 @@ class WifiConnector:
 
         # Check if wpa_cli can already talk to the interface
         rc, out, _ = self._run(
-            ["wpa_cli", "-i", self.iface, "status"], timeout=5
+            [self._wpa_cli, "-i", self.iface, "status"], timeout=5
         )
         if rc == 0 and "Failed to connect" not in out:
             logger.debug("wpa_supplicant control interface is active")
@@ -98,7 +105,7 @@ class WifiConnector:
             )
             # Add interface via global control socket
             self._run_shell(
-                f"sudo wpa_cli -g /run/wpa_supplicant "
+                f"sudo {self._wpa_cli} -g /run/wpa_supplicant "
                 f"interface_add {self.iface} {conf_path} nl80211 2>&1",
                 timeout=10,
             )
@@ -106,7 +113,7 @@ class WifiConnector:
 
         # Verify
         rc, out, _ = self._run(
-            ["wpa_cli", "-i", self.iface, "status"], timeout=5
+            [self._wpa_cli, "-i", self.iface, "status"], timeout=5
         )
         if rc == 0 and "Failed to connect" not in out:
             logger.info("wpa_supplicant ready")
@@ -129,14 +136,14 @@ class WifiConnector:
             timeout=5,
         )
         self._run_shell(
-            f"sudo wpa_supplicant -B -i {self.iface} -c {conf_path} "
+            f"sudo {self._wpa_supplicant} -B -i {self.iface} -c {conf_path} "
             f"-D nl80211 2>&1",
             timeout=10,
         )
         time.sleep(2)
 
         rc, out, _ = self._run(
-            ["wpa_cli", "-i", self.iface, "status"], timeout=5
+            [self._wpa_cli, "-i", self.iface, "status"], timeout=5
         )
         if rc == 0 and "Failed to connect" not in out:
             logger.info("wpa_supplicant started (standalone)")
@@ -166,66 +173,66 @@ class WifiConnector:
 
         # Clean up all existing networks to avoid junk entries
         rc, out, _ = self._run(
-            ["wpa_cli", "-i", self.iface, "list_networks"], timeout=5
+            [self._wpa_cli, "-i", self.iface, "list_networks"], timeout=5
         )
         if rc == 0:
             for line in out.strip().split('\n')[1:]:  # skip header
                 parts = line.split('\t')
                 if parts and parts[0].strip():
                     self._run(
-                        ["wpa_cli", "-i", self.iface, "remove_network",
+                        [self._wpa_cli, "-i", self.iface, "remove_network",
                          parts[0].strip()],
                         timeout=5
                     )
 
         # Add a fresh network
         rc, out, _ = self._run(
-            ["wpa_cli", "-i", self.iface, "add_network"], timeout=5
+            [self._wpa_cli, "-i", self.iface, "add_network"], timeout=5
         )
         net_id = out.strip() if out.strip().isdigit() else "0"
 
         # Configure the network
         if network.is_open or not psk:
             self._run(
-                ["wpa_cli", "-i", self.iface, "set_network", net_id,
+                [self._wpa_cli, "-i", self.iface, "set_network", net_id,
                  "ssid", f'"{network.ssid}"'],
                 timeout=5
             )
             self._run(
-                ["wpa_cli", "-i", self.iface, "set_network", net_id,
+                [self._wpa_cli, "-i", self.iface, "set_network", net_id,
                  "key_mgmt", "NONE"],
                 timeout=5
             )
         else:
             self._run(
-                ["wpa_cli", "-i", self.iface, "set_network", net_id,
+                [self._wpa_cli, "-i", self.iface, "set_network", net_id,
                  "ssid", f'"{network.ssid}"'],
                 timeout=5
             )
             self._run(
-                ["wpa_cli", "-i", self.iface, "set_network", net_id,
+                [self._wpa_cli, "-i", self.iface, "set_network", net_id,
                  "psk", f'"{psk}"'],
                 timeout=5
             )
 
         if hidden:
             self._run(
-                ["wpa_cli", "-i", self.iface, "set_network", net_id,
+                [self._wpa_cli, "-i", self.iface, "set_network", net_id,
                  "scan_ssid", "1"],
                 timeout=5
             )
 
         # Enable and select the network
         self._run(
-            ["wpa_cli", "-i", self.iface, "enable_network", net_id],
+            [self._wpa_cli, "-i", self.iface, "enable_network", net_id],
             timeout=5
         )
         self._run(
-            ["wpa_cli", "-i", self.iface, "select_network", net_id],
+            [self._wpa_cli, "-i", self.iface, "select_network", net_id],
             timeout=5
         )
         self._run(
-            ["wpa_cli", "-i", self.iface, "save_config"],
+            [self._wpa_cli, "-i", self.iface, "save_config"],
             timeout=5
         )
 
@@ -250,7 +257,7 @@ class WifiConnector:
 
         while time.time() < deadline:
             rc, out, _ = self._run(
-                ["wpa_cli", "-i", self.iface, "status"], timeout=5
+                [self._wpa_cli, "-i", self.iface, "status"], timeout=5
             )
             if rc == 0:
                 if "wpa_state=COMPLETED" in out:
@@ -265,7 +272,7 @@ class WifiConnector:
 
         # Final check
         rc, out, _ = self._run(
-            ["wpa_cli", "-i", self.iface, "status"], timeout=5
+            [self._wpa_cli, "-i", self.iface, "status"], timeout=5
         )
         if rc == 0 and "wpa_state=COMPLETED" in out:
             logger.info(f"Associated with '{ssid}' (late)")
@@ -283,7 +290,7 @@ class WifiConnector:
         # Using -9 (SIGKILL) causes the interface to lose carrier, which
         # makes wpa_supplicant disconnect. Use dhcpcd -k for graceful release.
         self._run_shell(
-            f"sudo dhcpcd -k {self.iface} 2>/dev/null", timeout=5
+            f"sudo {self._dhcpcd} -k {self.iface} 2>/dev/null", timeout=5
         )
         time.sleep(1)
         # Remove stale pid files
@@ -295,7 +302,7 @@ class WifiConnector:
         # Start dhcpcd in background mode (default), then poll for IP.
         # dhcpcd uses -t (not --timeout) for the lease timeout.
         self._run_shell(
-            f"sudo dhcpcd -4 -t {timeout} {self.iface} 2>&1",
+            f"sudo {self._dhcpcd} -4 -t {timeout} {self.iface} 2>&1",
             timeout=10  # just wait for it to start
         )
 
@@ -304,7 +311,7 @@ class WifiConnector:
         while time.time() < deadline:
             time.sleep(2)
             rc, out, _ = self._run(
-                ["ip", "-br", "addr", "show", self.iface], timeout=5
+                [self._ip, "-br", "addr", "show", self.iface], timeout=5
             )
             if rc == 0 and out:
                 # In brief format, IP appears as 3rd+ field, e.g.:
@@ -322,10 +329,10 @@ class WifiConnector:
         # Try dhclient as fallback
         logger.debug("dhcpcd didn't get an IP, trying dhclient...")
         self._run_shell(
-            f"sudo dhclient {self.iface} 2>&1", timeout=timeout
+            f"sudo {self._dhclient} {self.iface} 2>&1", timeout=timeout
         )
         rc, out, _ = self._run(
-            ["ip", "-br", "addr", "show", self.iface], timeout=5
+            [self._ip, "-br", "addr", "show", self.iface], timeout=5
         )
         if rc == 0 and "inet " in out:
             logger.info(f"Got IP via dhclient on {self.iface}")
@@ -339,10 +346,10 @@ class WifiConnector:
         logger.info(f"Disconnecting from {self.iface}...")
 
         # Release DHCP
-        self._run_shell(f"sudo dhcpcd -k {self.iface} 2>/dev/null", timeout=5)
+        self._run_shell(f"sudo {self._dhcpcd} -k {self.iface} 2>/dev/null", timeout=5)
 
         # Tell wpa_supplicant to disconnect
-        self._run(["wpa_cli", "-i", self.iface, "disconnect"], timeout=5)
+        self._run([self._wpa_cli, "-i", self.iface, "disconnect"], timeout=5)
 
         self._current_ssid = None
         time.sleep(1)
@@ -351,7 +358,7 @@ class WifiConnector:
     def get_current_connection(self) -> Optional[dict]:
         """Get info about the current WiFi connection."""
         rc, out, _ = self._run(
-            ["wpa_cli", "-i", self.iface, "status"], timeout=5
+            [self._wpa_cli, "-i", self.iface, "status"], timeout=5
         )
         if rc != 0 or "Failed to connect" in out:
             return None
@@ -368,7 +375,7 @@ class WifiConnector:
 
     def get_current_ip(self) -> Optional[str]:
         """Get the current IP address on the WiFi interface."""
-        rc, out, _ = self._run(["ip", "-br", "addr", "show", self.iface], timeout=5)
+        rc, out, _ = self._run([self._ip, "-br", "addr", "show", self.iface], timeout=5)
         if rc == 0:
             for line in out.split('\n'):
                 if self.iface in line and "inet " in line:

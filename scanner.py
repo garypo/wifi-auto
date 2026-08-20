@@ -11,6 +11,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from utils import get_iw, get_ip, get_rfkill
+
 logger = logging.getLogger(__name__)
 
 
@@ -75,14 +77,15 @@ class WifiScanner:
 
     def ensure_interface_up(self) -> bool:
         """Make sure the WiFi interface is up."""
-        output = self._run(["ip", "-br", "link", "show", self.iface])
+        ip_cmd = get_ip()
+        output = self._run([ip_cmd, "-br", "link", "show", self.iface])
         if "UP" in output:
             logger.debug(f"Interface {self.iface} is already UP")
             return True
 
         logger.info(f"Bringing interface {self.iface} up...")
         result = subprocess.run(
-            ["sudo", "ip", "link", "set", self.iface, "up"],
+            ["sudo", ip_cmd, "link", "set", self.iface, "up"],
             capture_output=True, text=True, timeout=10
         )
         if result.returncode != 0:
@@ -90,13 +93,14 @@ class WifiScanner:
             return False
 
         # Unblock radio if needed
+        rfkill_cmd = get_rfkill()
         subprocess.run(
-            ["sudo", "rfkill", "unblock", "wifi"],
+            ["sudo", rfkill_cmd, "unblock", "wifi"],
             capture_output=True, text=True, timeout=5
         )
 
         time.sleep(2)
-        output = self._run(["ip", "-br", "link", "show", self.iface])
+        output = self._run([ip_cmd, "-br", "link", "show", self.iface])
         is_up = "UP" in output
         logger.info(f"Interface {self.iface} is {'UP' if is_up else 'still DOWN'}")
         return is_up
@@ -107,12 +111,15 @@ class WifiScanner:
             logger.error("Cannot scan: interface is down")
             return []
 
+        iw_cmd = get_iw()
         logger.info(f"Starting WiFi scan on {self.iface}...")
         # Try with sudo first, then without (user may be in netdev group)
-        output = self._run_shell(f"sudo iw dev {self.iface} scan ap-force 2>&1",
-                                 self.timeout)
+        output = self._run_shell(
+            f"sudo {iw_cmd} dev {self.iface} scan ap-force 2>&1",
+            self.timeout
+        )
         if not output or "command not found" in output:
-            output = self._run(["iw", "dev", self.iface, "scan"], self.timeout)
+            output = self._run([iw_cmd, "dev", self.iface, "scan"], self.timeout)
 
         return self._parse_iw_scan(output)
 
